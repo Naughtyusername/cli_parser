@@ -1,0 +1,8 @@
+# Ignore the binary named 'roguelike' at the root
+/cliparser
+
+# Standard Odin ignores
+*.bin
+*.exe
+*.pdb
+*.obj
