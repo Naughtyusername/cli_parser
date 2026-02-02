@@ -1,6 +1,7 @@
 # Ignore the binary named 'roguelike' at the root
 /cliparser
 
+*.org
 # Standard Odin ignores
 *.bin
 *.exe
