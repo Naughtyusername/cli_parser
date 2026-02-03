@@ -1,5 +1,6 @@
 # Ignore the binary named 'roguelike' at the root
 /cliparser
+checkpoint.md
 
 *.org
 # Standard Odin ignores
