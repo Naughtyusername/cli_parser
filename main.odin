@@ -6,6 +6,33 @@ import "core:strconv"
 import "core:strings"
 
 // ===================================================================================
+// finally testing this!
+// ===================================================================================
+
+main :: proc() {
+    parser := make_parser("testcli", "A test CLI tool")
+    defer destroy_parser(&parser)
+
+    verbose := false
+    output := ""
+    files := make([dynamic]string)
+
+    flag(&parser, &verbose, "verbose", "v", "Enable verbose output")
+    option(&parser, &output, "output", "o", "Output file", required = true)
+    positionals(&parser, &files, "FILES", "Input files", required = true)
+
+    ok, err := parse(&parser, os.args)
+    if !ok {
+        fmt.println("Error:", err)
+        return
+    }
+
+    fmt.println("verbose:", verbose)
+    fmt.println("output:", output)
+    fmt.println("files:", files)
+}
+
+// ===================================================================================
 // DATA STRUCTURES
 // ===================================================================================
 // The types that Option can be
@@ -38,7 +65,7 @@ Positionals :: struct {
 	name:     string, // "FILES" (for help text display)
 	help:     string, // input files to process
 	required: bool, // Must provide at least one
-	dest:     ^[]string, // where to store the collected file names
+	dest:     ^[dynamic]string, // where to store the collected file names
 }
 
 // Parser
@@ -103,7 +130,7 @@ option :: proc(
 // Register positional arguments
 positionals :: proc(
 	parser: ^Parser,
-	dest: ^[]string,
+	dest: ^[dynamic]string,
 	name: string,
 	help: string,
 	required := false,
@@ -116,17 +143,15 @@ positionals :: proc(
 	}
 }
 
+// ===================================================================================
 // Main parse function
+// ===================================================================================
 // Parse command-line arguments
 parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 	// handle the empty args
 	if len(args) == 0 {
 		return true, ""
 	}
-
-	// create dynamic arrays to colllect positional args
-	positionals_found := make([dynamic]string)
-	defer delete(positionals_found)
 
 	// track which required options we
 	required_options_found := make(map[string]bool)
@@ -143,7 +168,9 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 			// help is special, we usually just want to see the help info and exit.
 		}
 
-		// check for short args (-s --something)
+		// ===================================================================================
+		// check for short args (-s --something) short arg handling
+		// ===================================================================================
 		if strings.has_prefix(arg, "-") && !strings.has_prefix(arg, "--") && len(arg) > 1 {
 			// short args
 			short_name := string(arg[1:2]) // just the char after '-'
@@ -152,13 +179,13 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 			opt := find_option_by_short(parser, short_name)
 			if opt != nil {
 				// check for duplicates
-				if short_name in required_options_found {
-					return false, fmt.tprintf("Option -%s provided multiple times", short_name)
+				if opt.long in required_options_found {
+					return false, fmt.tprintf("Option -%s provided multiple times", opt.long)
 				}
 
 				// check that there is a second (next) argument
 				if i + 1 >= len(args) {
-					return false, fmt.tprintf("Option -%s requires a value", short_name)
+					return false, fmt.tprintf("Option -%s requires a value", opt.long)
 				}
 
 				// make sure next arg isn't another flag
@@ -182,7 +209,8 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 
 				// Track required
 				if opt.required {
-					required_options_found[short_name] = true
+					// handling the verbose output and short by normalizing
+					required_options_found[opt.long] = true
 				}
 
 			} else {
@@ -196,10 +224,13 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 			}
 
 			i += 1
-			continue
+			continue // next iteration - skip short arg handling
+			// ===================================================================================
 		}
 
-		// Check for long arguments (--something)
+		// ===================================================================================
+		// Check for long arguments (--something) long arg handling
+		// ===================================================================================
 		if strings.has_prefix(arg, "--") {
 
 			// Remove the "--" prefix to get the name
@@ -278,10 +309,33 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 					}
 				}
 			}
+		} else {
+            if pos, ok := parser.positionals.?; ok {
+                append(pos.dest, arg)
+            }
 		}
 
 		i += 1
-		continue
+		continue // next iteration - skip long arg handling
+		// ===================================================================================
+	}
+
+	// unwraps the Maybe, gives us the value and  a bool
+	// Check all required options were provided
+	for &opt in parser.options {
+		if opt.required {
+			if opt.long not_in required_options_found {
+				return false, fmt.tprintf("Required argument %s not provided", opt.long)
+			}
+		}
+	}
+	// Validate required positionals (if registered and required)
+	if pos, ok := parser.positionals.?; ok {
+        if pos, ok := parser.positionals.?; ok {
+            if pos.required && len(pos.dest^) == 0 {
+                return false, fmt.tprintf("Required argument %s not provided", pos.name)
+            }
+        }
 	}
 
 	return true, ""

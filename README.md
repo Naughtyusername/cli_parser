@@ -1,9 +1,10 @@
 **GOAL**
 
-    * Trying to get better at coding without having to look up guides, get back to as good as i used to be. as well as still learning odin and trying to get better so when i work on the game it goes smoother.
+Learn more Odin and get better at programming again.
 
 **Proposed Scope: "Good Enough for Real Tools" ****
-We're building a library that can handle the CLI patterns you'd use in your own tools - not trying to compete with production-grade libraries, but something that:
+We're building a library that can handle the CLI patterns you'd use in your own tools - not trying to compete with production-grade libraries, but something that id like to use for side projects and further expansion and learning. Baby steps into a shell and or text editor which are future goal projects as well.
+
 Must Handle:
 
 Flags (boolean switches)
