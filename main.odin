@@ -186,6 +186,19 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string, shou
 			// help is special, we usually just want to see the help info and exit.
 		}
 
+        // Check if the arg is just -- e.g. mytool --output file.txt -- --weird-filename.txt
+        if arg == "--" {
+            // Everything after this is a positional
+            i += 1
+            for i < len(args) {
+                if pos, ok := parser.positionals.?; ok {
+                    append(pos.dest, args[i])
+                }
+                i += 1
+            }
+            break // exit the main loop
+        }
+
 		// ===================================================================================
 		// check for short args (-s --something) short arg handling -- handle -vvv as well
 		// ===================================================================================
