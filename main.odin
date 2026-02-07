@@ -17,20 +17,26 @@ main :: proc() {
 	verbose := false
 	output := ""
 	files := make([dynamic]string)
+    verbosity := 0
 
 	flag(&parser, &verbose, "verbose", "v", "Enable verbose output")
 	option(&parser, &output, "output", "o", "Output file", required = true)
-	positionals(&parser, &files, "FILES", "Input files", required = true)
+	positionals(&parser, &files, "FILES", "  Input files", required = true)
+    flag_count(&parser, &verbosity, "verbose", "v", "Verbosity level")
 
-	ok, err := parse(&parser, os.args)
-	if !ok {
-		fmt.println("Error:", err)
+	ok, err, should_exit := parse(&parser, os.args)
+	if should_exit {
 		return
 	}
+    if !ok {
+		fmt.println("Error:", err)
+        return
+    }
 
 	fmt.println("verbose:", verbose)
 	fmt.println("output:", output)
 	fmt.println("files:", files)
+	fmt.println("verbosity:", verbosity)
 }
 
 // ===================================================================================
@@ -71,11 +77,21 @@ Positionals :: struct {
 
 // Parser
 Parser :: struct {
-	name:        string, // Program name (for help text)
-	description: string, // Progrm description
-	flags:       [dynamic]Flag, // List of all registered flags
-	options:     [dynamic]Option, // list of all registered options
-	positionals: Maybe(Positionals), // not all programs need positionals, so maybe works well here
+	name:           string, // Program name (for help text)
+	description:    string, // Progrm description
+	flags:          [dynamic]Flag, // List of all registered flags
+	options:        [dynamic]Option, // list of all registered options
+	positionals:    Maybe(Positionals), // not all programs need positionals, so maybe works well here
+
+	// flag count for things like -vvv
+	counting_flags: [dynamic]CountingFlag,
+}
+
+CountingFlag :: struct {
+	long:  string,
+	short: string,
+	help:  string,
+	dest:  ^int,
 }
 
 // ===================================================================================
@@ -88,6 +104,7 @@ make_parser :: proc(name: string, description: string) -> Parser {
 		description = description,
 		flags = make([dynamic]Flag),
 		positionals = nil,
+		counting_flags = make([dynamic]CountingFlag),
 	}
 }
 
@@ -148,10 +165,10 @@ positionals :: proc(
 // Main parse function
 // ===================================================================================
 // Parse command-line arguments
-parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
+parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string, should_exit: bool) {
 	// handle the empty args
 	if len(args) == 0 {
-		return true, ""
+		return true, "", false
 	}
 
 	// track which required options we
@@ -165,14 +182,37 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 
 		if arg == "--help" {
 			print_help(parser)
-			return true, ""
+			return true, "", true // ok, no eror, but should exit
 			// help is special, we usually just want to see the help info and exit.
 		}
 
 		// ===================================================================================
-		// check for short args (-s --something) short arg handling
+		// check for short args (-s --something) short arg handling -- handle -vvv as well
 		// ===================================================================================
+		// Check for counting flags first (like -vvv)
 		if strings.has_prefix(arg, "-") && !strings.has_prefix(arg, "--") && len(arg) > 1 {
+			chars := arg[1:] // everythign after the dash: "vvv"
+			first_char := rune(chars[0]) // 'v' (this is a byte/u8) (we do have to typecast it here too)
+
+			// Check if all characters are the same
+			all_same := true
+			for c in chars {
+				if c != first_char {
+					all_same = false
+					break
+				}
+			}
+
+			if all_same {
+				short_name := string(chars[0:1]) // convert first byte to string "v"
+				cf := find_counting_flag_by_short(parser, short_name)
+				if cf != nil {
+					cf.dest^ += len(chars) // add the count (3 for -vvv)
+					i += 1
+					continue
+				}
+			}
+
 			// short args
 			short_name := string(arg[1:2]) // just the char after '-'
 
@@ -181,12 +221,12 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 			if opt != nil {
 				// check for duplicates
 				if opt.long in required_options_found {
-					return false, fmt.tprintf("Option -%s provided multiple times", opt.long)
+					return false, fmt.tprintf("Option --%s provided multiple times", opt.long), false
 				}
 
 				// check that there is a second (next) argument
 				if i + 1 >= len(args) {
-					return false, fmt.tprintf("Option -%s requires a value", opt.long)
+					return false, fmt.tprintf("Option -%s requires a value", opt.short), false
 				}
 
 				// make sure next arg isn't another flag
@@ -196,7 +236,7 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 						"Option -%s requires a value, got %s",
 						short_name,
 						next_arg,
-					)
+					), false
 				}
 
 				// Consume the value (move past it)
@@ -205,7 +245,7 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 
 				// Validate and set
 				if !set_option_value(opt, value_str) {
-					return false, fmt.tprintf("Invalid value for -%s: %s", short_name, value_str)
+					return false, fmt.tprintf("Invalid value for -%s: %s", short_name, value_str), false
 				}
 
 				// Track required
@@ -220,7 +260,7 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 				if flag != nil {
 					flag.dest^ = true
 				} else {
-					return false, fmt.tprintf("Unknown flag: -%c", short_name)
+					return false, fmt.tprintf("Unknown flag: -%s", short_name), false
 				}
 			}
 
@@ -247,13 +287,13 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 				// Find the option
 				opt := find_option(parser, opt_name)
 				if opt == nil {
-					return false, fmt.tprintf("Unknown option: --%s", opt_name)
+					return false, fmt.tprintf("Unknown option: --%s", opt_name), false
 				}
 
 				// Set its value
 				value_str := parts[1]
 				if !set_option_value(opt, value_str) {
-					return false, fmt.tprintf("Invalid value for --%s: %s", opt_name, value_str)
+					return false, fmt.tprintf("Invalid value for --%s: %s", opt_name, value_str), false
 				}
 
 				// Track that we found a required option
@@ -270,12 +310,12 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 
 					// Check for duplicate
 					if name in required_options_found {
-						return false, fmt.tprintf("Option --%s provided multiple times", name)
+						return false, fmt.tprintf("Option --%s provided multiple times", name), false
 					}
 
 					// Check: is there a next arg?
 					if i + 1 >= len(args) {
-						return false, fmt.tprintf("Option --%s requires a value", name)
+						return false, fmt.tprintf("Option --%s requires a value", name), false
 					}
 
 					// Check: does next arg look like another flag?
@@ -285,7 +325,7 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 							"Option --%s requires a value, got %s",
 							name,
 							next_arg,
-						)
+						), false
 					}
 
 					// Consume the value
@@ -294,7 +334,7 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 
 					// Set the value
 					if !set_option_value(opt, value_str) {
-						return false, fmt.tprintf("Invalid value for --%s: %s", name, value_str)
+						return false, fmt.tprintf("Invalid value for --%s: %s", name, value_str), false
 					}
 
 					if opt.required {
@@ -306,7 +346,7 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 					if flag != nil {
 						flag.dest^ = true // set the flag to true
 					} else {
-						return false, fmt.tprintf("Unknown argument: --%s", name)
+						return false, fmt.tprintf("Unknown flag: --%s", name), false
 					}
 				}
 			}
@@ -326,68 +366,69 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 	for &opt in parser.options {
 		if opt.required {
 			if opt.long not_in required_options_found {
-				return false, fmt.tprintf("Required argument %s not provided", opt.long)
+				return false, fmt.tprintf("Required option --%s not provided", opt.long), false
 			}
 		}
 	}
 	// Validate required positionals (if registered and required)
 	if pos, ok := parser.positionals.?; ok {
 		if pos.required && len(pos.dest^) == 0 {
-			return false, fmt.tprintf("Required argument %s not provided", pos.name)
+			return false, fmt.tprintf("Required argument(s) <%s> not provided", pos.name), false
 		}
 	}
 
-	return true, ""
+	return true, "", false
 }
 
 // Generate help text
 print_help :: proc(parser: ^Parser) {
-    fmt.println(parser.name, "-", parser.description)
-    fmt.println()
+	fmt.println(parser.name, "-", parser.description)
+	fmt.println()
 
-    // Usage line
-    fmt.printf("Usage: %s", parser.name)
-    if len(parser.flags) > 0 || len(parser.options) > 0 {
-        fmt.print("[OPTIONS]")
-    }
-    if pos, ok := parser.positionals.?; ok {
-        fmt.printf(" %s", pos.name)
-    }
-    fmt.println() // end the usage line
+	// Usage line
+	fmt.printf("Usage: %s", parser.name)
+	if len(parser.flags) > 0 || len(parser.options) > 0 {
+		fmt.print("[OPTIONS]")
+	}
+	if pos, ok := parser.positionals.?; ok {
+		fmt.printf(" %s", pos.name)
+	}
+	fmt.println() // end the usage line
 
-    // Flags section
-    if len(parser.flags) > 0 {
-        fmt.println()
-        fmt.println("Flags:")
-        for flag in parser.flags {
-            fmt.printf("  -%s, --%-12s %s\n", flag.short, flag.long, flag.help)
-        }
-    }
+	// Flags section
+	if len(parser.flags) > 0 {
+		fmt.println()
+		fmt.println("Flags:")
+		for flag in parser.flags {
+			fmt.printf("  -%s, --%-12s %s\n", flag.short, flag.long, flag.help)
+		}
+	}
 
-    // Options section
-    if len(parser.options) > 0 {
-        fmt.println()
-        fmt.println("Options:")
-        for opt in parser.options {
-            required_str := opt.required ? " (required)" : ""
-            fmt.printf("  -%s, --%-12s %s%s\n", opt.short, opt.long, opt.help, required_str)
-        }
-    }
+	// Options section
+	if len(parser.options) > 0 {
+		fmt.println()
+		fmt.println("Options:")
+		for opt in parser.options {
+			required_str := opt.required ? " (required)" : ""
+			fmt.printf("  -%s, --%-12s %s%s\n", opt.short, opt.long, opt.help, required_str)
+		}
+	}
 
-    // Positionals section
-    if pos, ok := parser.positionals.?; ok {
-        fmt.println()
-        fmt.println("Arguments:")
-        required_str := pos.required ? "(required)" : ""
-        fmt.printf("  %s-16 %s%s\n", pos.name, pos.help, required_str)
-    }
-        fmt.println()
+	// Positionals section
+	if pos, ok := parser.positionals.?; ok {
+		fmt.println()
+		fmt.println("Arguments:")
+		required_str := pos.required ? " (required)" : ""
+		fmt.printf("  %-16s %s%s\n", pos.name, pos.help, required_str)
+	}
+	fmt.println()
 }
 
 // Cleanup
 destroy_parser :: proc(parser: ^Parser) {
 	delete(parser.flags)
 	delete(parser.options)
+	delete(parser.counting_flags)
 }
 
 // helper function to find matching flag names
@@ -410,6 +451,22 @@ find_flag_by_short :: proc(parser: ^Parser, name: string) -> ^Flag {
 	return nil
 }
 
+// Flag count registration function
+flag_count :: proc(parser: ^Parser, dest: ^int, long: string, short: string, help: string) {
+	append(
+		&parser.counting_flags,
+		CountingFlag{long = long, short = short, help = help, dest = dest},
+	)
+}
+
+find_counting_flag_by_short :: proc(parser: ^Parser, name: string) -> ^CountingFlag {
+	for &cf in parser.counting_flags {
+		if cf.short == name {
+			return &cf
+		}
+	}
+	return nil
+}
 
 // helper funtion to find matching option names
 find_option :: proc(parser: ^Parser, name: string) -> ^Option {
