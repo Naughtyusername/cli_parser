@@ -1,0 +1,95 @@
+#+TITLE: CLI Parser Roadmap
+#+STARTUP: overview
+
+* Purpose
+
+Learning project to get better at programming and Odin. Practice:
+- Designing before coding (data structure thinking)
+- API design (pleasant to use)
+- Incremental building (minimal viable, then expand)
+- Odin idioms and patterns
+
+* Core Features
+** DONE Flags (boolean switches)
+- [X] Long form: --verbose
+- [X] Short form: -v
+- [ ] Combined short flags: -vvv for verbosity levels
+** DONE Options (key-value pairs)
+- [X] Long with equals: --output=file.txt
+- [X] Long with space: --output file.txt
+- [X] Short form: -o file.txt
+- [X] Type support: string, int, f64, bool
+** DONE Positional arguments
+- [X] Collect remaining args after flags/options
+- [X] Required positionals validation
+** DONE Validation
+- [X] Required vs optional options
+- [X] Type checking and conversion
+- [X] Duplicate detection
+- [X] Helpful error messages
+** DONE Help generation
+- [X] print_help() implementation
+- [X] Usage line: mytool [OPTIONS] FILES...
+- [X] List flags with descriptions
+- [X] List options with descriptions
+- [X] Show positional argument info
+  Finished <2026-02-07 Sat>
+
+* Polish
+** DONE Combined short flags
+Support -vvv counting (sets verbosity to 3)
+** DONE Error message consistency
+Review all error messages for consistent formatting
+** DONE Edge cases
+- [X] Double dash (--) end of options marker
+- [X] Single dash (-) as positional (stdin convention)
+- [X] Empty value with equals (--output=)
+- [ ] Weird unicode input
+- [ ] Very long arguments
+
+* Stretch Goals
+** TODO Subcommands
+Like git commit vs git push. Architectural lift - parser per subcommand?
+** TODO Environment variable fallbacks
+--port uses $PORT if not provided
+** TODO Config file integration
+Read defaults from a config file
+
+* Explicitly Not Handling
+- Complex option types (arrays, enums, custom parsing)
+- Bash completion generation
+- Man page generation
+- Windows-style /flags
+
+* Side Projects (use this library)
+Build real tools to dog-food the library. In order of complexity:
+
+** TODO 1. wc clone (word/line counter)
+Simple, quick win. Learn file I/O basics.
+- Positional: files to count
+- Flags: -l (lines), -w (words), -c (chars)
+- Bonus: -v (verbose), multiple files support
+
+** TODO 2. grep-like search tool
+Pattern searching in files.
+- Option: --pattern/-p for search term
+- Positional: files to search
+- Flags: -i (case insensitive), -v (invert), -n (line numbers)
+
+** TODO 3. File renamer
+Batch rename utility.
+- Options: --find and --replace patterns
+- Positional: files to rename
+- Flags: --dry-run, -v (verbose)
+
+** TODO 4. Todo manager
+Simple task tracking, stepping stone to subcommands.
+- Positional commands: add, list, done, remove
+- File I/O for persistence
+- Flags: --all, --completed
+
+** Future: Shell
+Long-term goal - build a shell
+
+** Future: Text editor
+Long-term goal - build a text editor
