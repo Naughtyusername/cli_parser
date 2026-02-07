@@ -9,27 +9,28 @@ import "core:strings"
 // finally testing this!
 // ===================================================================================
 
+// test command -> odin run . -- --verbose -o out.txt file1.txt file2.txt
 main :: proc() {
-    parser := make_parser("testcli", "A test CLI tool")
-    defer destroy_parser(&parser)
+	parser := make_parser("testcli", "A test CLI tool")
+	defer destroy_parser(&parser)
 
-    verbose := false
-    output := ""
-    files := make([dynamic]string)
+	verbose := false
+	output := ""
+	files := make([dynamic]string)
 
-    flag(&parser, &verbose, "verbose", "v", "Enable verbose output")
-    option(&parser, &output, "output", "o", "Output file", required = true)
-    positionals(&parser, &files, "FILES", "Input files", required = true)
+	flag(&parser, &verbose, "verbose", "v", "Enable verbose output")
+	option(&parser, &output, "output", "o", "Output file", required = true)
+	positionals(&parser, &files, "FILES", "Input files", required = true)
 
-    ok, err := parse(&parser, os.args)
-    if !ok {
-        fmt.println("Error:", err)
-        return
-    }
+	ok, err := parse(&parser, os.args)
+	if !ok {
+		fmt.println("Error:", err)
+		return
+	}
 
-    fmt.println("verbose:", verbose)
-    fmt.println("output:", output)
-    fmt.println("files:", files)
+	fmt.println("verbose:", verbose)
+	fmt.println("output:", output)
+	fmt.println("files:", files)
 }
 
 // ===================================================================================
@@ -310,9 +311,9 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 				}
 			}
 		} else {
-            if pos, ok := parser.positionals.?; ok {
-                append(pos.dest, arg)
-            }
+			if pos, ok := parser.positionals.?; ok {
+				append(pos.dest, arg)
+			}
 		}
 
 		i += 1
@@ -331,11 +332,9 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 	}
 	// Validate required positionals (if registered and required)
 	if pos, ok := parser.positionals.?; ok {
-        if pos, ok := parser.positionals.?; ok {
-            if pos.required && len(pos.dest^) == 0 {
-                return false, fmt.tprintf("Required argument %s not provided", pos.name)
-            }
-        }
+		if pos.required && len(pos.dest^) == 0 {
+			return false, fmt.tprintf("Required argument %s not provided", pos.name)
+		}
 	}
 
 	return true, ""
@@ -343,7 +342,46 @@ parse :: proc(parser: ^Parser, args: []string) -> (ok: bool, error: string) {
 
 // Generate help text
 print_help :: proc(parser: ^Parser) {
-	// Implementing shortly
+    fmt.println(parser.name, "-", parser.description)
+    fmt.println()
+
+    // Usage line
+    fmt.printf("Usage: %s", parser.name)
+    if len(parser.flags) > 0 || len(parser.options) > 0 {
+        fmt.print("[OPTIONS]")
+    }
+    if pos, ok := parser.positionals.?; ok {
+        fmt.printf(" %s", pos.name)
+    }
+    fmt.println() // end the usage line
+
+    // Flags section
+    if len(parser.flags) > 0 {
+        fmt.println()
+        fmt.println("Flags:")
+        for flag in parser.flags {
+            fmt.printf("  -%s, --%-12s %s\n", flag.short, flag.long, flag.help)
+        }
+    }
+
+    // Options section
+    if len(parser.options) > 0 {
+        fmt.println()
+        fmt.println("Options:")
+        for opt in parser.options {
+            required_str := opt.required ? " (required)" : ""
+            fmt.printf("  -%s, --%-12s %s%s\n", opt.short, opt.long, opt.help, required_str)
+        }
+    }
+
+    // Positionals section
+    if pos, ok := parser.positionals.?; ok {
+        fmt.println()
+        fmt.println("Arguments:")
+        required_str := pos.required ? "(required)" : ""
+        fmt.printf("  %s-16 %s%s\n", pos.name, pos.help, required_str)
+    }
+        fmt.println()
 }
 
 // Cleanup
